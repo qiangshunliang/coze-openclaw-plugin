@@ -1,0 +1,56 @@
+{
+  "id": "coze-openclaw-plugin",
+  "name": "Coze OpenClaw Plugin",
+  "description": "Coze web tools and bundled generation skills for OpenClaw.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": {
+        "type": "string"
+      },
+      "baseUrl": {
+        "type": "string"
+      },
+      "modelBaseUrl": {
+        "type": "string"
+      },
+      "retryTimes": {
+        "type": "number"
+      },
+      "retryDelay": {
+        "type": "number"
+      },
+      "timeout": {
+        "type": "number"
+      }
+    }
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "Coze API Key",
+      "sensitive": true
+    },
+    "baseUrl": {
+      "label": "Coze Base URL",
+      "advanced": true
+    },
+    "modelBaseUrl": {
+      "label": "Coze Model Base URL",
+      "advanced": true
+    },
+    "retryTimes": {
+      "label": "Retry Times",
+      "advanced": true
+    },
+    "retryDelay": {
+      "label": "Retry Delay (ms)",
+      "advanced": true
+    },
+    "timeout": {
+      "label": "Request Timeout (ms)",
+      "advanced": true
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "coze-openclaw-plugin",
+  "version": "0.1.0",
+  "description": "OpenClaw Coze tools and bundled skills",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run ./src"
+  },
+  "files": [
+    "index.ts",
+    "openclaw.plugin.json",
+    "src/client.ts",
+    "src/config.ts",
+    "src/skill-cli.ts",
+    "src/shared/asr.ts",
+    "src/shared/fetch.ts",
+    "src/shared/image-gen.ts",
+    "src/shared/search.ts",
+    "src/shared/tts.ts",
+    "src/tools/web-fetch.ts",
+    "src/tools/web-search.ts",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "openclaw": "v2026.2.6",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.48",
+    "coze-coding-dev-sdk": "0.7.17",
+    "json5": "2.2.3",
+    "jiti": "2.6.1"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "install": {
+      "npmSpec": "coze-openclaw-plugin",
+      "localPath": "extensions/coze-openclaw-plugin",
+      "defaultChoice": "npm"
+    }
+  }
+}
