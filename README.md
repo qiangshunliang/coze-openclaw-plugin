@@ -94,9 +94,24 @@ Fetch and normalize page or document content through Coze.
 
 Parameters:
 
-- `urls`
+- `urls`: a single URL string or an array of URL strings
 - `format`: `text`, `markdown`, or `json`
 - `textOnly`
+
+Examples:
+
+```json
+{
+  "urls": "https://example.com/article"
+}
+```
+
+```json
+{
+  "urls": ["https://example.com/a", "https://example.com/b"],
+  "format": "markdown"
+}
+```
 
 ## Skills
 

@@ -65,4 +65,44 @@ describe("createCozeWebFetchTool", () => {
     expect(text).toContain("First page");
     expect(text).toContain("Second page");
   });
+
+  it("accepts a single url string and normalizes it to an array", async () => {
+    hoisted.fetchContent.mockResolvedValueOnce([
+      {
+        url: "https://example.com/one",
+        title: "One",
+        text: "First page",
+        links: [],
+        images: [],
+      },
+    ]);
+
+    const tool = createCozeWebFetchTool({
+      pluginConfig: { apiKey: "test-key" },
+      logger: {
+        debug() {},
+        info() {},
+        warn() {},
+        error() {},
+      },
+      env: {},
+    });
+
+    const result = await tool.execute("call-2", {
+      urls: "https://example.com/one",
+      format: "json",
+    });
+
+    expect(hoisted.fetchContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urls: ["https://example.com/one"],
+      }),
+      expect.objectContaining({ apiKey: "test-key" }),
+    );
+    expect(result.details).toMatchObject({
+      count: 1,
+      urls: ["https://example.com/one"],
+    });
+    expect(getTextContent(result)).toContain("https://example.com/one");
+  });
 });

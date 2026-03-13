@@ -13,10 +13,27 @@ type ToolLogger = {
 
 const FetchToolSchema = Type.Object(
   {
-    urls: Type.Array(Type.String({ description: "URL to fetch." }), {
-      description: "One or more URLs to fetch.",
-      minItems: 1,
-    }),
+    urls: Type.Union(
+      [
+        Type.String({
+          description: "Single URL to fetch. You can pass a plain string for one URL.",
+        }),
+        Type.Array(
+          Type.String({
+            description: "URL to fetch.",
+          }),
+          {
+            description:
+              "One or more URLs to fetch. Use an array for multiple URLs, or pass a single string for one URL.",
+            minItems: 1,
+          },
+        ),
+      ],
+      {
+        description:
+          "URL input. Accepts either a single URL string or an array of URL strings.",
+      },
+    ),
     format: Type.Optional(
       Type.Unsafe<"text" | "markdown" | "json">({
         type: "string",
@@ -32,6 +49,10 @@ const FetchToolSchema = Type.Object(
 );
 
 type FetchToolParams = Static<typeof FetchToolSchema>;
+
+function normalizeUrls(urls: string | string[]): string[] {
+  return Array.isArray(urls) ? urls : [urls];
+}
 
 function renderFetchedText(
   items: Awaited<ReturnType<typeof fetchContent>>,
@@ -99,9 +120,10 @@ export function createCozeWebFetchTool(params: {
         return buildErrorResult(getMissingCozeConfigMessage());
       }
       try {
+        const urls = normalizeUrls(toolParams.urls);
         const items = await fetchContent(
           {
-            urls: toolParams.urls,
+            urls,
             textOnly: toolParams.textOnly,
           },
           clientConfig,
