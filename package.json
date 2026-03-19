@@ -1,7 +1,7 @@
 {
   "name": "coze-openclaw-plugin",
-  "version": "0.1.1",
-  "description": "OpenClaw Coze tools and bundled skills",
+  "version": "0.2.0",
+  "description": "OpenClaw Coze tools, bundled skills, session recovery, and upgrade management",
   "type": "module",
   "scripts": {
     "test": "vitest run ./src"
@@ -19,6 +19,7 @@
     "src/shared/tts.ts",
     "src/tools/web-fetch.ts",
     "src/tools/web-search.ts",
+    "src/upgrade/",
     "skills",
     "README.md",
     "LICENSE"

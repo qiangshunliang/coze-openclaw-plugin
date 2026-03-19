@@ -1,7 +1,7 @@
 {
   "id": "coze-openclaw-plugin",
   "name": "Coze OpenClaw Plugin",
-  "description": "Coze web tools and bundled generation skills for OpenClaw.",
+  "description": "Coze web tools, bundled generation skills, session recovery, and upgrade management for OpenClaw.",
   "skills": ["./skills"],
   "configSchema": {
     "type": "object",
