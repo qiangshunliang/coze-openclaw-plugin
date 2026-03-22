@@ -1,4 +1,3 @@
-      
 #!/usr/bin/env python3
 """
 微信登录二维码生成脚本

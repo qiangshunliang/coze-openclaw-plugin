@@ -1,6 +1,6 @@
 {
   "name": "coze-openclaw-plugin",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "OpenClaw Coze tools, bundled skills, session recovery, and upgrade management",
   "type": "module",
   "scripts": {
@@ -21,6 +21,7 @@
     "src/tools/web-search.ts",
     "src/session-recovery.ts",
     "src/upgrade/",
+    "src/wechat-login/",
     "skills",
     "README.md",
     "LICENSE"

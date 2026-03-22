@@ -3,6 +3,7 @@ import { createCozeWebFetchTool } from "./src/tools/web-fetch.js";
 import { createCozeWebSearchTool } from "./src/tools/web-search.js";
 import { registerUpgradeModule } from "./src/upgrade/index.js";
 import { registerSessionRecovery } from "./src/session-recovery.js";
+import { registerWechatLogin } from "./src/wechat-login/index.js";
 
 function hasApiKey(pluginConfig: OpenClawPluginApi["pluginConfig"]): boolean {
   return typeof pluginConfig?.apiKey === "string" && pluginConfig.apiKey.trim().length > 0;
@@ -44,6 +45,11 @@ const plugin = {
     // Boot notification / session recovery
     // ========================================
     registerSessionRecovery(api);
+
+    // ========================================
+    // WeChat login command + hook
+    // ========================================
+    registerWechatLogin(api);
 
   },
 };
