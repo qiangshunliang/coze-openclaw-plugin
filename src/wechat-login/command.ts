@@ -41,7 +41,7 @@ export function registerWechatLoginCommand(api: OpenClawPluginApi): void {
     description: "🔐 微信登录 - 生成微信扫码登录二维码",
     handler: async (ctx) => {
       try {
-        await execFileAsync("python3", [scriptPath], { timeout: 120_000 });
+        await execFileAsync("python3", [scriptPath], { timeout: 300_000 });
 
         if (ctx.channel === "webchat") {
           const imageBuffer = await readFile(QR_IMAGE_PATH);
