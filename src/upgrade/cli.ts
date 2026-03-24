@@ -8,7 +8,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
 import type { UpgradeManifest, UpgradePlan } from "./manifest.js";
-import { matchesAppliesTo, readInstanceCreatedAt, type InstanceInfo } from "./applies-to.js";
+import { matchesAppliesTo, readInstanceCreatedAt, readCoreVersion, type InstanceInfo } from "./applies-to.js";
 import { detectConflict } from "./conflict.js";
 import { executeUpgrade } from "./executor.js";
 import { loadUpgradeState, saveUpgradeState } from "./state.js";
@@ -20,7 +20,7 @@ import { loadUpgradeState, saveUpgradeState } from "./state.js";
 async function collectInstanceInfo(api: OpenClawPluginApi): Promise<InstanceInfo> {
   return {
     createdAt: await readInstanceCreatedAt(),
-    coreVersion: api.runtime.version ?? null,
+    coreVersion: readCoreVersion(api),
     pluginVersion: api.version ?? null,
   };
 }

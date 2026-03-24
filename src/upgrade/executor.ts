@@ -9,7 +9,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
 import type { UpgradeModule, UpgradeResult } from "./manifest.js";
 import { setNestedValue, mergeNestedValue, detectConflict } from "./conflict.js";
-import { matchesAppliesTo, readInstanceCreatedAt, type InstanceInfo } from "./applies-to.js";
+import { matchesAppliesTo, readInstanceCreatedAt, readCoreVersion, type InstanceInfo } from "./applies-to.js";
 import { loadUpgradeState, markModuleApplied, saveUpgradeState, appendToHistory } from "./state.js";
 
 // ---------------------------------------------------------------------------
@@ -43,34 +43,29 @@ function substituteEnvVars(value: unknown): unknown {
 // Single module execution
 // ---------------------------------------------------------------------------
 
-async function executeModule(mod: UpgradeModule, api: OpenClawPluginApi): Promise<void> {
-  switch (mod.type) {
-    case "config-patch": {
-      const cfg = await api.runtime.config.loadConfig();
-      const mutable = JSON.parse(JSON.stringify(cfg)) as Record<string, unknown>;
-      for (const patch of mod.patches) {
-        const resolved = substituteEnvVars(patch.value);
-        if (patch.op === "merge") {
-          if (!Array.isArray(resolved)) {
-            throw new Error(`merge op requires an array value, got ${typeof resolved} at path "${patch.path}"`);
-          }
-          mergeNestedValue(mutable, patch.path, resolved);
-        } else {
-          setNestedValue(mutable, patch.path, resolved);
-        }
+/**
+ * Apply config patches onto a mutable config object (in-memory only).
+ * The caller is responsible for loading and writing the config file.
+ */
+function applyConfigPatches(mod: UpgradeModule & { type: "config-patch" }, mutable: Record<string, unknown>): void {
+  for (const patch of mod.patches) {
+    const resolved = substituteEnvVars(patch.value);
+    if (patch.op === "merge") {
+      if (!Array.isArray(resolved)) {
+        throw new Error(`merge op requires an array value, got ${typeof resolved} at path "${patch.path}"`);
       }
-      await api.runtime.config.writeConfigFile(mutable as Parameters<typeof api.runtime.config.writeConfigFile>[0]);
-      break;
-    }
-
-    case "custom-shell": {
-      await api.runtime.system.runCommandWithTimeout(
-        ["sh", "-c", mod.script],
-        { timeoutMs: mod.timeout ?? 120_000 },
-      );
-      break;
+      mergeNestedValue(mutable, patch.path, resolved);
+    } else {
+      setNestedValue(mutable, patch.path, resolved);
     }
   }
+}
+
+async function executeShellModule(mod: UpgradeModule & { type: "custom-shell" }, api: OpenClawPluginApi): Promise<void> {
+  await api.runtime.system.runCommandWithTimeout(
+    ["sh", "-c", mod.script],
+    { timeoutMs: mod.timeout ?? 120_000 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -94,11 +89,16 @@ export async function executeUpgrade(api: OpenClawPluginApi): Promise<UpgradeRes
   // Collect instance info once for appliesTo re-check
   const instanceInfo: InstanceInfo = {
     createdAt: await readInstanceCreatedAt(),
-    coreVersion: api.runtime.version ?? null,
+    coreVersion: readCoreVersion(api),
     pluginVersion: api.version ?? null,
   };
 
-  // Execute auto modules
+  // -------------------------------------------------------------------------
+  // Phase 1: Collect all config-patch modules, apply them in one batch
+  // -------------------------------------------------------------------------
+  const configPatchMods: Array<UpgradeModule & { type: "config-patch" }> = [];
+  const shellMods: Array<UpgradeModule & { type: "custom-shell" }> = [];
+
   for (const mod of plan.auto) {
     // Re-check appliesTo — versions may have changed between push and apply.
     if (!matchesAppliesTo(mod.appliesTo, instanceInfo)) {
@@ -127,8 +127,46 @@ export async function executeUpgrade(api: OpenClawPluginApi): Promise<UpgradeRes
       }
     }
 
+    if (mod.type === "config-patch") {
+      configPatchMods.push(mod);
+    } else {
+      shellMods.push(mod);
+    }
+  }
+
+  // Batch all config-patch modules: single load → all patches → single write
+  if (configPatchMods.length > 0) {
     try {
-      await executeModule(mod, api);
+      const cfg = await api.runtime.config.loadConfig();
+      const mutable = JSON.parse(JSON.stringify(cfg)) as Record<string, unknown>;
+      for (const mod of configPatchMods) {
+        applyConfigPatches(mod, mutable);
+      }
+      await api.runtime.config.writeConfigFile(mutable as Parameters<typeof api.runtime.config.writeConfigFile>[0]);
+      for (const mod of configPatchMods) {
+        results.push({
+          moduleId: mod.id,
+          status: "success",
+          description: mod.description,
+        });
+        await markModuleApplied(mod.id);
+      }
+    } catch (err) {
+      for (const mod of configPatchMods) {
+        results.push({
+          moduleId: mod.id,
+          status: "failed",
+          description: mod.description,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  // Execute shell modules sequentially
+  for (const mod of shellMods) {
+    try {
+      await executeShellModule(mod, api);
       results.push({
         moduleId: mod.id,
         status: "success",

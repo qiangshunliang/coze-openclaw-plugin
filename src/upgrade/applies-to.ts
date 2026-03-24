@@ -7,7 +7,10 @@
  * - `coreVersionBefore` / `pluginVersionBefore`: version-based checks
  */
 
+import { execSync } from "node:child_process";
 import { stat } from "node:fs/promises";
+
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
 import type { AppliesTo } from "./manifest.js";
 
@@ -43,6 +46,22 @@ export async function readInstanceCreatedAt(): Promise<string | null> {
   try {
     const s = await stat(INSTANCE_MARKER_PATH);
     return s.mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/** Extract core version from `openclaw --version` output (e.g. "2026.3.13").
+ *  Falls back to api.runtime.version, then null. */
+export function readCoreVersion(api: OpenClawPluginApi): string | null {
+  const rtVersion = api.runtime.version;
+  if (rtVersion && rtVersion !== "unknown") return rtVersion;
+
+  try {
+    const out = execSync("openclaw --version", { encoding: "utf-8", timeout: 5000 }).trim();
+    // e.g. "OpenClaw 2026.3.13 (61d171a)" or "2026.3.2"
+    const match = out.match(/(\d+\.\d+\.\d+)/);
+    return match ? match[1] : null;
   } catch {
     return null;
   }
