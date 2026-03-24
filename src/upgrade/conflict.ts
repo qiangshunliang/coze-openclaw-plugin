@@ -21,6 +21,14 @@ export type ConflictResult = {
 };
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isObjectWithId(v: unknown): v is Record<string, unknown> & { id: string } {
+  return typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).id === "string";
+}
+
+// ---------------------------------------------------------------------------
 // Deep path access
 // ---------------------------------------------------------------------------
 
@@ -84,12 +92,19 @@ export function mergeNestedValue(obj: Record<string, unknown>, dotPath: string, 
     current[last] = existing;
   }
   const arr = existing as unknown[];
-  const existingKeys = new Set(arr.map((item) => JSON.stringify(item)));
   for (const item of value) {
-    const key = JSON.stringify(item);
-    if (!existingKeys.has(key)) {
-      arr.push(item);
-      existingKeys.add(key);
+    const itemId = isObjectWithId(item) ? item.id : null;
+    if (itemId !== null) {
+      // Deduplicate by `id` field
+      if (!arr.some((e) => isObjectWithId(e) && e.id === itemId)) {
+        arr.push(item);
+      }
+    } else {
+      // Fallback: deduplicate by full JSON equality
+      const key = JSON.stringify(item);
+      if (!arr.some((e) => JSON.stringify(e) === key)) {
+        arr.push(item);
+      }
     }
   }
 }
