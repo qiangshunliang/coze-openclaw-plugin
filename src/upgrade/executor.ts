@@ -13,33 +13,6 @@ import { matchesAppliesTo, readInstanceCreatedAt, readCoreVersion, type Instance
 import { loadUpgradeState, markModuleApplied, saveUpgradeState, appendToHistory } from "./state.js";
 
 // ---------------------------------------------------------------------------
-// Environment variable substitution
-// ---------------------------------------------------------------------------
-
-/**
- * Replace `${ENV_VAR}` placeholders with actual environment values.
- * Operates recursively on strings, arrays, and plain objects.
- */
-function substituteEnvVars(value: unknown): unknown {
-  if (typeof value === "string") {
-    return value.replace(/\$\{(\w+)\}/g, (_match, varName: string) => {
-      return process.env[varName] ?? "";
-    });
-  }
-  if (Array.isArray(value)) {
-    return value.map(substituteEnvVars);
-  }
-  if (value !== null && typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      result[k] = substituteEnvVars(v);
-    }
-    return result;
-  }
-  return value;
-}
-
-// ---------------------------------------------------------------------------
 // Single module execution
 // ---------------------------------------------------------------------------
 
@@ -49,14 +22,13 @@ function substituteEnvVars(value: unknown): unknown {
  */
 function applyConfigPatches(mod: UpgradeModule & { type: "config-patch" }, mutable: Record<string, unknown>): void {
   for (const patch of mod.patches) {
-    const resolved = substituteEnvVars(patch.value);
     if (patch.op === "merge") {
-      if (!Array.isArray(resolved)) {
-        throw new Error(`merge op requires an array value, got ${typeof resolved} at path "${patch.path}"`);
+      if (!Array.isArray(patch.value)) {
+        throw new Error(`merge op requires an array value, got ${typeof patch.value} at path "${patch.path}"`);
       }
-      mergeNestedValue(mutable, patch.path, resolved);
+      mergeNestedValue(mutable, patch.path, patch.value as unknown[]);
     } else {
-      setNestedValue(mutable, patch.path, resolved);
+      setNestedValue(mutable, patch.path, patch.value);
     }
   }
 }
@@ -78,6 +50,7 @@ async function executeShellModule(mod: UpgradeModule & { type: "custom-shell" },
  * immediately after execution to survive crashes.
  */
 export async function executeUpgrade(api: OpenClawPluginApi): Promise<UpgradeResult[]> {
+  console.error("[upgrade-executor] v0.1.13 — substituteEnvVars removed");
   const state = await loadUpgradeState();
   const plan = state.pendingPlan;
   if (!plan) {
