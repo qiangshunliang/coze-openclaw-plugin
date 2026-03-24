@@ -34,7 +34,10 @@ export type ConflictPolicy = "keep-user" | "force";
 export type ConfigPatchOp = {
   /** Dot-path into OpenClawConfig, e.g. "agents.defaults.memorySearch" */
   path: string;
-  op: "set";
+  /** `set` — overwrite the target path entirely.
+   *  `merge` — target must be an array; for each item in `value`,
+   *            skip if an equal element already exists, append otherwise. */
+  op: "set" | "merge";
   value: unknown;
 };
 
@@ -45,6 +48,8 @@ export type ConfigPatchModule = {
   appliesTo: AppliesTo;
   conflictPolicy: ConflictPolicy;
   description: string;
+  /** Estimated execution time in milliseconds (used for progress display). */
+  estimatedMs?: number;
 };
 
 export type CustomShellModule = {
@@ -57,6 +62,8 @@ export type CustomShellModule = {
   appliesTo: AppliesTo;
   conflictPolicy: ConflictPolicy;
   description: string;
+  /** Estimated execution time in milliseconds (used for progress display). */
+  estimatedMs?: number;
 };
 
 export type UpgradeModule = ConfigPatchModule | CustomShellModule;

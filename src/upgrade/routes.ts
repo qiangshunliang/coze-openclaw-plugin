@@ -41,12 +41,14 @@ async function handleGetStatus(
           auto: state.pendingPlan.auto.map((m) => ({
             id: m.id,
             description: m.description,
+            estimatedMs: m.estimatedMs ?? 0,
           })),
           skipped: state.pendingPlan.skipped.map((s) => ({
             id: s.module.id,
             description: s.module.description,
             reason: s.reason,
           })),
+          estimatedMs: state.pendingPlan.auto.reduce((sum, m) => sum + (m.estimatedMs ?? 0), 0),
         }
       : null,
     lastManifestVersion: state.lastManifestVersion,

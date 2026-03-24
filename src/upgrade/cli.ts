@@ -44,11 +44,13 @@ async function handlePushManifest(manifestJson: string, api: OpenClawPluginApi):
   if (manifest.manifestVersion === state.lastManifestVersion) {
     if (state.pendingPlan) {
       // Plan already generated, waiting for user to apply
+      const estimatedMs = state.pendingPlan.auto.reduce((sum, m) => sum + (m.estimatedMs ?? 0), 0);
       console.log(
         JSON.stringify({
           status: "plan-ready",
           auto: state.pendingPlan.auto.length,
           skipped: state.pendingPlan.skipped.length,
+          estimatedMs,
         }),
       );
     } else {
@@ -104,11 +106,13 @@ async function handlePushManifest(manifestJson: string, api: OpenClawPluginApi):
     pendingPlan: plan,
   });
 
+  const estimatedMs = plan.auto.reduce((sum, m) => sum + (m.estimatedMs ?? 0), 0);
   console.log(
     JSON.stringify({
       status: "plan-ready",
       auto: plan.auto.length,
       skipped: plan.skipped.length,
+      estimatedMs,
     }),
   );
 }

@@ -58,6 +58,42 @@ export function setNestedValue(obj: Record<string, unknown>, dotPath: string, va
   current[last] = value;
 }
 
+/**
+ * Merge an array value into a nested path.
+ * For each item in `value`, skip if an equal element already exists in the
+ * target array, append otherwise. If the target path doesn't exist or is not
+ * an array, initialise it as an empty array first.
+ *
+ * Equality is checked via JSON.stringify for deep comparison.
+ */
+export function mergeNestedValue(obj: Record<string, unknown>, dotPath: string, value: unknown[]): void {
+  const segments = dotPath.split(".");
+  let current: Record<string, unknown> = obj;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i];
+    if (current[seg] === undefined || current[seg] === null || typeof current[seg] !== "object") {
+      current[seg] = {};
+    }
+    current = current[seg] as Record<string, unknown>;
+  }
+  const last = segments[segments.length - 1];
+
+  let existing = current[last];
+  if (!Array.isArray(existing)) {
+    existing = [];
+    current[last] = existing;
+  }
+  const arr = existing as unknown[];
+  const existingKeys = new Set(arr.map((item) => JSON.stringify(item)));
+  for (const item of value) {
+    const key = JSON.stringify(item);
+    if (!existingKeys.has(key)) {
+      arr.push(item);
+      existingKeys.add(key);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Conflict detection
 // ---------------------------------------------------------------------------
@@ -78,6 +114,10 @@ export function detectConflict(
   }
 
   for (const patch of mod.patches) {
+    // merge ops are additive — they never conflict with existing values
+    if (patch.op === "merge") {
+      continue;
+    }
     const current = getNestedValue(config, patch.path);
     if (current !== undefined) {
       return {
