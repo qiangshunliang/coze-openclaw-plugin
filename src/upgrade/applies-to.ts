@@ -11,8 +11,11 @@ import { stat } from "node:fs/promises";
 
 import type { AppliesTo } from "./manifest.js";
 
-/** Path used to infer instance creation time via file birthtime. */
-export const INSTANCE_MARKER_PATH = "/workspace/projects/.gitignore";
+/** Path used to infer instance creation time via mtime.
+ *  cloud-init writes this file when instance initialization completes,
+ *  so its mtime accurately reflects instance creation time
+ *  (unlike workspace files whose birthtime may come from the base image). */
+export const INSTANCE_MARKER_PATH = "/var/lib/cloud/instance/boot-finished";
 
 // ---------------------------------------------------------------------------
 // Instance info collected at runtime
@@ -32,14 +35,14 @@ export type InstanceInfo = {
 // ---------------------------------------------------------------------------
 
 /**
- * Read the birthtime of the instance marker file to determine when
- * the workspace was initially created. Returns null if the file
- * doesn't exist or stat fails.
+ * Read the mtime of the cloud-init boot-finished marker to determine
+ * when the instance was created. Returns null if the file doesn't
+ * exist or stat fails.
  */
 export async function readInstanceCreatedAt(): Promise<string | null> {
   try {
     const s = await stat(INSTANCE_MARKER_PATH);
-    return s.birthtime.toISOString();
+    return s.mtime.toISOString();
   } catch {
     return null;
   }
