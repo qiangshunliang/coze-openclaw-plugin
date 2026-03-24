@@ -12,10 +12,10 @@ import { stat } from "node:fs/promises";
 import type { AppliesTo } from "./manifest.js";
 
 /** Path used to infer instance creation time via mtime.
- *  cloud-init writes this file when instance initialization completes,
- *  so its mtime accurately reflects instance creation time
- *  (unlike workspace files whose birthtime may come from the base image). */
-export const INSTANCE_MARKER_PATH = "/var/lib/cloud/instance/boot-finished";
+ *  cloud-init writes /etc/hostname during first-boot initialization,
+ *  and it is not modified on subsequent reboots — its mtime reliably
+ *  reflects the ECS instance creation time. */
+export const INSTANCE_MARKER_PATH = "/etc/hostname";
 
 // ---------------------------------------------------------------------------
 // Instance info collected at runtime
