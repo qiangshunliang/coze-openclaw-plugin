@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs";
+import { open } from "node:fs/promises";
 import path from "node:path";
-import readline from "node:readline";
-import { createReadStream } from "node:fs";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 
 // ---------------------------------------------------------------------------
@@ -33,10 +32,20 @@ interface TranscriptMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Constants
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MESSAGE = "服务重启完成，正在继续处理你的任务...";
+/** Only recover sessions whose transcript was modified within this window */
+const RECENT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+/** Max agent child processes for recovery */
+const MAX_RECOVERY_AGENTS = 2;
+/** Bytes to read from the tail of a transcript file */
+const TAIL_READ_BYTES = 8192; // 8 KB – plenty for 20 JSONL lines
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export function registerSessionRecovery(api: OpenClawPluginApi): void {
   const message = DEFAULT_MESSAGE;
@@ -64,7 +73,7 @@ export function registerSessionRecovery(api: OpenClawPluginApi): void {
 
       const storePath = path.join(basePath, "sessions.json");
 
-      // 2. Read session store
+      // 2. Read session store (keep full read as-is per requirement)
       let store: SessionStore;
       try {
         const raw = await fs.readFile(storePath, "utf-8");
@@ -74,11 +83,12 @@ export function registerSessionRecovery(api: OpenClawPluginApi): void {
         return;
       }
 
-      // 3. Check each session for interruption
+      // 3. Filter to recent sessions only (modified within last 10 min)
+      const now = Date.now();
       const sessionKeys = Object.keys(store);
-      api.logger.info?.(`Checking ${sessionKeys.length} sessions for interruptions...`);
+      api.logger.info?.(`Total sessions: ${sessionKeys.length}, filtering to recent ${RECENT_WINDOW_MS / 1000}s...`);
 
-      let recoveredCount = 0;
+      const recentSessions: { key: string; entry: SessionEntry; transcriptPath: string }[] = [];
 
       for (const sessionKey of sessionKeys) {
         const entry = store[sessionKey];
@@ -88,34 +98,91 @@ export function registerSessionRecovery(api: OpenClawPluginApi): void {
           continue;
         }
 
-        // Use sessionFile from entry (absolute path to .jsonl file)
         let transcriptPath: string;
         if (entry?.sessionFile) {
           transcriptPath = entry.sessionFile;
         } else {
-          // Fall back: extract session ID from sessionKey and construct path
           const sessionId = sessionKey.split(":").pop();
           if (!sessionId) continue;
           transcriptPath = path.join(basePath, `${sessionId}.jsonl`);
         }
 
+        // Check file mtime – skip old sessions
         try {
+          const stat = await fs.stat(transcriptPath);
+          if (now - stat.mtimeMs > RECENT_WINDOW_MS) {
+            continue;
+          }
+        } catch {
+          // File missing or inaccessible – skip
+          continue;
+        }
+
+        recentSessions.push({ key: sessionKey, entry, transcriptPath });
+      }
+
+      // Release the large store object early
+      // @ts-ignore – allow GC
+      store = null!;
+
+      api.logger.info?.(`Found ${recentSessions.length} recent sessions to check`);
+
+      // 4. Check each recent session for interruption, recover serially (max N agents)
+      let recoveredCount = 0;
+
+      for (const { key: sessionKey, entry, transcriptPath } of recentSessions) {
+        if (recoveredCount >= MAX_RECOVERY_AGENTS) {
+          api.logger.info?.(`Reached max recovery limit (${MAX_RECOVERY_AGENTS}), stopping`);
+          break;
+        }
+
+        try {
+          // Re-check mtime before processing: if the file was modified since our
+          // initial scan, it means a new conversation is actively writing to it —
+          // skip to avoid conflicting with the live agent.
+          try {
+            const freshStat = await fs.stat(transcriptPath);
+            if (freshStat.mtimeMs > now + 1000) {
+              // mtime moved forward since we started — session is live
+              api.logger.info?.(`Session ${sessionKey} is actively being written, skipping recovery`);
+              continue;
+            }
+          } catch {
+            continue;
+          }
+
           const result = await checkIfInterrupted(transcriptPath, api.logger);
 
           if (result.interrupted) {
-            api.logger.info?.(`Session ${sessionKey} was interrupted (${result.reason}), recovering...`);
-
-            // Step 1: Send notification message
-            await sendMessageViaCLI(dc.channel, dc.to, message, api.logger);
-            api.logger.info?.(`✓ Recovery notification sent to ${sessionKey}`);
-
-            // Step 2: Continue the interrupted task via openclaw agent
-            if (continueTask && entry?.sessionId) {
-              await continueAgentTask(entry.sessionId, api.logger);
-              api.logger.info?.(`✓ Agent task continued for session ${entry.sessionId}`);
+            // Create a lock file to signal that recovery is in progress.
+            // Framework / other processes can check this to avoid duplicate agents.
+            const lockPath = transcriptPath + ".recovery-lock";
+            try {
+              await fs.writeFile(lockPath, `${process.pid}:${Date.now()}`, { flag: "wx" });
+            } catch {
+              // Lock already exists — another recovery (or a previous crash) is handling it
+              api.logger.info?.(`Session ${sessionKey} already has a recovery lock, skipping`);
+              continue;
             }
 
-            recoveredCount++;
+            try {
+              api.logger.info?.(`Session ${sessionKey} was interrupted (${result.reason}), recovering...`);
+
+              // Step 1: Send notification message
+              await sendMessageViaCLI(entry.deliveryContext!.channel!, entry.deliveryContext!.to!, message, api.logger);
+              api.logger.info?.(`✓ Recovery notification sent to ${sessionKey}`);
+
+              // Step 2: Continue the interrupted task via openclaw agent (serial, wait for completion)
+              if (continueTask && entry?.sessionId) {
+                await continueAgentTask(entry.sessionId, api.logger);
+                api.logger.info?.(`✓ Agent task completed for session ${entry.sessionId}`);
+              }
+
+              recoveredCount++;
+            } finally {
+              // Always clean up lock file
+              await fs.unlink(lockPath).catch(() => {});
+            }
           }
         } catch (error) {
           api.logger.error?.(`Failed to recover session ${sessionKey}: ${error}`);
@@ -181,28 +248,35 @@ async function checkIfInterrupted(transcriptPath: string, logger?: any): Promise
   return { interrupted: false, reason: `last role=${lastRole}, stopReason=${stopReason}` };
 }
 
+/**
+ * Read the last N lines from a file by seeking to the tail.
+ * Only reads the final TAIL_READ_BYTES bytes, avoiding full-file scans.
+ */
 async function readLastLines(filePath: string, lineCount: number): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({
-      input: createReadStream(filePath),
-      crlfDelay: Infinity,
-    });
+  let fh: fs.FileHandle | undefined;
+  try {
+    fh = await open(filePath, "r");
+    const stat = await fh.stat();
+    const fileSize = stat.size;
 
-    const allLines: string[] = [];
+    if (fileSize === 0) return [];
 
-    rl.on('line', (line) => {
-      allLines.push(line);
-      if (allLines.length > lineCount * 2) {
-        allLines.shift();
-      }
-    });
+    const readSize = Math.min(TAIL_READ_BYTES, fileSize);
+    const buffer = Buffer.alloc(readSize);
+    await fh.read(buffer, 0, readSize, fileSize - readSize);
 
-    rl.on('close', () => {
-      resolve(allLines.slice(-lineCount));
-    });
-
-    rl.on('error', reject);
-  });
+    const text = buffer.toString("utf-8");
+    // Split into lines, filter empty trailing line from final newline
+    const lines = text.split("\n");
+    if (lines.length > 0 && lines[lines.length - 1] === "") {
+      lines.pop();
+    }
+    return lines.slice(-lineCount);
+  } catch {
+    return [];
+  } finally {
+    await fh?.close();
+  }
 }
 
 async function sendMessageViaCLI(
@@ -227,7 +301,9 @@ async function sendMessageViaCLI(
 }
 
 /**
- * Continue agent task using OpenClaw CLI (runs in background)
+ * Continue agent task using OpenClaw CLI (runs in background).
+ * Returns a promise that resolves when the child process exits, so the caller
+ * can track concurrency.
  *
  * Note: We don't use --deliver flag here because:
  * 1. We already sent a recovery notification message
@@ -247,17 +323,23 @@ async function continueAgentTask(sessionId: string, logger?: any): Promise<void>
 
   logger?.info?.(`Continuing agent task: openclaw ${args.join(" ")}`);
 
-  const child = spawn("openclaw", args, {
-    env: { ...process.env },
-    stdio: "ignore",
-    detached: true,
+  return new Promise<void>((resolve) => {
+    const child = spawn("openclaw", args, {
+      env: { ...process.env },
+      stdio: "ignore",
+      detached: true,
+    });
+
+    child.unref();
+
+    child.on("error", (err) => {
+      logger?.error?.(`Failed to start agent: ${err.message}`);
+      resolve();
+    });
+
+    child.on("exit", (code) => {
+      logger?.debug?.(`Agent for session ${sessionId} exited with code ${code}`);
+      resolve();
+    });
   });
-
-  child.unref();
-
-  child.on("error", (err) => {
-    logger?.error?.(`Failed to start agent: ${err.message}`);
-  });
-
-  logger?.info?.(`✓ Agent task continued for session ${sessionId}`);
 }
