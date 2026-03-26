@@ -154,35 +154,19 @@ export function registerSessionRecovery(api: OpenClawPluginApi): void {
           const result = await checkIfInterrupted(transcriptPath, api.logger);
 
           if (result.interrupted) {
-            // Create a lock file to signal that recovery is in progress.
-            // Framework / other processes can check this to avoid duplicate agents.
-            const lockPath = transcriptPath + ".recovery-lock";
-            try {
-              await fs.writeFile(lockPath, `${process.pid}:${Date.now()}`, { flag: "wx" });
-            } catch {
-              // Lock already exists — another recovery (or a previous crash) is handling it
-              api.logger.info?.(`Session ${sessionKey} already has a recovery lock, skipping`);
-              continue;
+            api.logger.info?.(`Session ${sessionKey} was interrupted (${result.reason}), recovering...`);
+
+            // Step 1: Send notification message
+            await sendMessageViaCLI(entry.deliveryContext!.channel!, entry.deliveryContext!.to!, message, api.logger);
+            api.logger.info?.(`✓ Recovery notification sent to ${sessionKey}`);
+
+            // Step 2: Continue the interrupted task via openclaw agent (serial, wait for completion)
+            if (continueTask && entry?.sessionId) {
+              await continueAgentTask(entry.sessionId, api.logger);
+              api.logger.info?.(`✓ Agent task completed for session ${entry.sessionId}`);
             }
 
-            try {
-              api.logger.info?.(`Session ${sessionKey} was interrupted (${result.reason}), recovering...`);
-
-              // Step 1: Send notification message
-              await sendMessageViaCLI(entry.deliveryContext!.channel!, entry.deliveryContext!.to!, message, api.logger);
-              api.logger.info?.(`✓ Recovery notification sent to ${sessionKey}`);
-
-              // Step 2: Continue the interrupted task via openclaw agent (serial, wait for completion)
-              if (continueTask && entry?.sessionId) {
-                await continueAgentTask(entry.sessionId, api.logger);
-                api.logger.info?.(`✓ Agent task completed for session ${entry.sessionId}`);
-              }
-
-              recoveredCount++;
-            } finally {
-              // Always clean up lock file
-              await fs.unlink(lockPath).catch(() => {});
-            }
+            recoveredCount++;
           }
         } catch (error) {
           api.logger.error?.(`Failed to recover session ${sessionKey}: ${error}`);
